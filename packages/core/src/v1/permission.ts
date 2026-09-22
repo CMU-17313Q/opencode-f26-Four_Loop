@@ -30,4 +30,13 @@ export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("Per
   requestID: ID,
 }) {}
 
-export type Error = DeniedError | RejectedError | CorrectedError
+export class InvalidExplanationError extends Schema.TaggedErrorClass<InvalidExplanationError>()(
+  "PermissionInvalidExplanationError",
+  { detail: Schema.String },
+) {
+  override get message() {
+    return `Explain-before-edit blocked this proposal: ${this.detail}`
+  }
+}
+
+export type Error = DeniedError | RejectedError | CorrectedError | InvalidExplanationError
