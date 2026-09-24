@@ -47,6 +47,10 @@ exports[`tool parameters JSON Schema (wire shape) edit 1`] = `
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "properties": {
+    "explanation": {
+      "description": "Explain what this change does and why, naming the actual file and relevant symbols. Required when explain-before-edit is enabled; at most 4000 characters after trimming.",
+      "type": "string",
+    },
     "filePath": {
       "description": "The absolute path to the file to modify",
       "type": "string",
