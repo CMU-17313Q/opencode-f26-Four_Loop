@@ -1,6 +1,9 @@
 Performs exact string replacements in files. 
 
 Usage:
+- Include an `explanation` alongside the actual code change. Explain WHAT changes and WHY it is needed, using the real file path and relevant functions or symbols you inspected. Do not invent symbols or claim tests passed unless you ran them.
+- Keep the explanation concise and specific, within 4000 characters after trimming. Give a student-facing rationale, not private chain-of-thought or a generic statement such as "improves the code".
+- Supply the complete requested change as usual; this is explain-before-edit, not hints-only tutoring. The permission system handles approval. If a proposal is rejected, do not apply that proposal through another tool or shell command to bypass the rejection.
 - You must use your `Read` tool at least once in the conversation before editing. This tool will error if you attempt an edit without reading the file. 
 - When editing text from Read tool output, ensure you preserve the exact indentation (tabs/spaces) as it appears AFTER the line number prefix. The line number prefix format is: line number + colon + space (e.g., `1: `). Everything after that space is the actual file content to match. Never include any part of the line number prefix in the oldString or newString.
 - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
