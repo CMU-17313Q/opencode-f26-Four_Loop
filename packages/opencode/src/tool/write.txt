@@ -1,6 +1,9 @@
 Writes a file to the local filesystem.
 
 Usage:
+- Include an `explanation` alongside the actual code change. Explain WHAT changes and WHY it is needed, using the real file path and relevant functions or symbols you inspected. Do not invent symbols or claim tests passed unless you ran them.
+- Keep the explanation concise and specific, within 4000 characters after trimming. Give a student-facing rationale, not private chain-of-thought or a generic statement such as "improves the code".
+- Supply the complete requested change as usual; this is explain-before-edit, not hints-only tutoring. The permission system handles approval. If a proposal is rejected, do not apply that proposal through another tool or shell command to bypass the rejection.
 - This tool will overwrite the existing file if there is one at the provided path.
 - If this is an existing file, you MUST use the Read tool first to read the file's contents. This tool will fail if you did not read the file first.
 - ALWAYS prefer editing existing files in the codebase. NEVER write new files unless explicitly required.
