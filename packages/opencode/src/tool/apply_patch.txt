@@ -4,6 +4,16 @@ Use the `apply_patch` tool to edit files. Your patch language is a stripped‑do
 [ one or more file sections ]
 *** End Patch
 
+Pass an `explanation` string beside `patchText`, not inside the patch language.
+Explain WHAT changes and WHY, covering every affected file and relevant symbols.
+For multiple files, use a short file-by-file explanation within 4000 characters
+in total after trimming. Identify both source and destination for moves and
+explain deletions. Use paths/symbols you inspected; do not invent them or claim
+unperformed tests passed. Give a student-facing rationale, not private
+chain-of-thought. Provide the complete patch as usual rather than hints only.
+The permission system approves or rejects the entire proposal. Do not bypass a
+rejection by applying the same changes through a different tool or shell command.
+
 Within that envelope, you get a sequence of file operations.
 You MUST include a header to specify the action you are taking.
 Each operation starts with one of three headers:
