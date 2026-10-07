@@ -18,6 +18,10 @@ import * as Bom from "@/util/bom"
 const MAX_PROJECT_DIAGNOSTICS_FILES = 5
 
 export const Parameters = Schema.Struct({
+  explanation: Schema.optional(Schema.String).annotate({
+    description:
+      "Explain what this change does and why, naming the actual file and relevant symbols. Required when explain-before-edit is enabled; at most 4000 characters after trimming.",
+  }),
   content: Schema.String.annotate({ description: "The content to write to the file" }),
   filePath: Schema.String.annotate({
     description: "The absolute path to the file to write (must be absolute, not relative)",
@@ -35,7 +39,7 @@ export const WriteTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: { content: string; filePath: string }, ctx: Tool.Context) =>
+      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const instance = yield* InstanceState.context
           const filepath = path.isAbsolute(params.filePath)
@@ -58,6 +62,7 @@ export const WriteTool = Tool.define(
             metadata: {
               filepath,
               diff,
+              ...(params.explanation === undefined ? {} : { explanation: params.explanation }),
             },
           })
 

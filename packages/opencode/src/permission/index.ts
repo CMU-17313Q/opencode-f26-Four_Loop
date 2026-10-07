@@ -6,6 +6,8 @@ import { Deferred, Effect, Layer, Context } from "effect"
 import os from "os"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { EventV2Bridge } from "@/event-v2-bridge"
+import { Config } from "@/config/config"
+import { validateEditExplanation } from "@/tool/edit-explanation"
 
 export const Event = PermissionV1.Event
 
@@ -17,6 +19,8 @@ export interface Interface {
 
 interface PendingEntry {
   info: PermissionV1.Request
+  // Trusted snapshot: replies must not derive policy from client-visible metadata.
+  explainBeforeEdit: boolean
   deferred: Deferred.Deferred<void, PermissionV1.RejectedError | PermissionV1.CorrectedError>
 }
 
@@ -43,6 +47,7 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const events = yield* EventV2Bridge.Service
+    const config = yield* Config.Service
     const state = yield* InstanceState.make<State>(
       Effect.fn("Permission.state")(function* (ctx) {
         void ctx
@@ -67,10 +72,14 @@ const layer = Layer.effect(
     const ask = Effect.fn("Permission.ask")(function* (input: PermissionV1.AskInput) {
       const { approved, pending } = yield* InstanceState.get(state)
       const { ruleset, ...request } = input
-      let needsAsk = false
+      const explainBeforeEdit = request.permission === "edit" && (yield* config.get()).explain_before_edit === true
+      let needsAsk = explainBeforeEdit
 
       for (const pattern of request.patterns) {
-        const rule = evaluate(request.permission, pattern, ruleset, approved)
+        // Keep last-matching-rule precedence, but do not let remembered approvals
+        // bypass review or override an effective configured deny in this mode.
+        const rule = evaluate(request.permission, pattern, ruleset, explainBeforeEdit ? [] : approved)
+
         yield* Effect.logInfo("evaluated", { permission: request.permission, pattern, action: rule })
         if (rule.action === "deny") {
           return yield* new PermissionV1.DeniedError({
@@ -83,23 +92,29 @@ const layer = Layer.effect(
 
       if (!needsAsk) return
 
+      const metadata = { ...request.metadata }
+      delete metadata.explainBeforeEdit
+      if (explainBeforeEdit) {
+        const result = validateEditExplanation(metadata.explanation)
+        if (!result.valid) return yield* new PermissionV1.InvalidExplanationError({ detail: result.error })
+        metadata.explanation = result.explanation
+        metadata.explainBeforeEdit = true
+      }
       const id = request.id ?? PermissionV1.ID.ascending()
       const info: PermissionV1.Request = {
         id,
         sessionID: request.sessionID,
         permission: request.permission,
         patterns: request.patterns,
-        metadata: request.metadata,
-        always: request.always,
+        metadata,
+        always: explainBeforeEdit ? [] : request.always,
         tool: request.tool,
       }
       yield* Effect.logInfo("asking", { id, permission: info.permission, patterns: info.patterns })
-
       const deferred = yield* Deferred.make<void, PermissionV1.RejectedError | PermissionV1.CorrectedError>()
-      pending.set(id, { info, deferred })
-      yield* events.publish(Event.Asked, info)
+      pending.set(id, { info, deferred, explainBeforeEdit })
       return yield* Effect.ensuring(
-        Deferred.await(deferred),
+        events.publish(Event.Asked, info).pipe(Effect.andThen(Deferred.await(deferred))),
         Effect.sync(() => {
           pending.delete(id)
         }),
@@ -112,13 +127,14 @@ const layer = Layer.effect(
       if (!existing) return yield* new PermissionV1.NotFoundError({ requestID: input.requestID })
 
       pending.delete(input.requestID)
+      const answer = existing.explainBeforeEdit && input.reply === "always" ? "once" : input.reply
       yield* events.publish(Event.Replied, {
         sessionID: existing.info.sessionID,
         requestID: existing.info.id,
-        reply: input.reply,
+        reply: answer,
       })
 
-      if (input.reply === "reject") {
+      if (answer === "reject") {
         yield* Deferred.fail(
           existing.deferred,
           input.message
@@ -140,7 +156,7 @@ const layer = Layer.effect(
       }
 
       yield* Deferred.succeed(existing.deferred, undefined)
-      if (input.reply === "once") return
+      if (answer === "once") return
 
       for (const pattern of existing.info.always) {
         approved.push({
@@ -152,6 +168,8 @@ const layer = Layer.effect(
 
       for (const [id, item] of pending.entries()) {
         if (item.info.sessionID !== existing.info.sessionID) continue
+        // A legacy "always" reply must not release an individually reviewed edit.
+        if (item.explainBeforeEdit) continue
         const ok = item.info.patterns.every(
           (pattern) => evaluate(item.info.permission, pattern, approved).action === "allow",
         )
@@ -218,6 +236,6 @@ export function visibleTools<T>(tools: Record<string, T>, ruleset: PermissionV1.
   return Object.fromEntries(Object.entries(tools).filter(([name]) => !hidden.has(name)))
 }
 
-export const node = LayerNode.make({ service: Service, layer: layer, deps: [EventV2Bridge.node] })
+export const node = LayerNode.make({ service: Service, layer: layer, deps: [EventV2Bridge.node, Config.node] })
 
 export * as Permission from "."
