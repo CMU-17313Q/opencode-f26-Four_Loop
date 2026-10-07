@@ -16,8 +16,12 @@ import { Format } from "../format"
 import * as Bom from "@/util/bom"
 
 export const Parameters = Schema.Struct({
-  patchText: Schema.String.annotate({ description: "The full patch text that describes all changes to be made" }),
-})
+    explanation: Schema.optional(Schema.String).annotate({
+      description:
+        "Explain what this change does and why, covering each affected file and relevant symbols. Required when explain-before-edit is enabled; at most 4000 characters after trimming.",
+    }),
+     patchText: Schema.String.annotate({ description: "The full patch text that describes all changes to be made" }),
+   })
 
 export const ApplyPatchTool = Tool.define(
   "apply_patch",
@@ -211,6 +215,7 @@ export const ApplyPatchTool = Tool.define(
           filepath: relativePaths.join(", "),
           diff: totalDiff,
           files,
+          ...(params.explanation === undefined ? {} : { explanation: params.explanation }),
         },
       })
 
