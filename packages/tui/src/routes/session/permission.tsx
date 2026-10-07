@@ -16,6 +16,8 @@ import { getScrollAcceleration } from "../../util/scroll"
 import { useTuiConfig } from "../../config"
 import { OPENCODE_BASE_MODE, useBindings, useCommandShortcut } from "../../keymap"
 import { usePathFormatter } from "../../context/path-format"
+import { EditExplanation } from "./edit-explanation"
+import { editReviewOptions, getEditDiffs, getEditReview, selectEditReviewOption } from "./edit-review"
 
 type PermissionStage = "permission" | "always" | "reject"
 
@@ -26,63 +28,68 @@ function EditBody(props: { request: PermissionRequest }) {
   const config = useTuiConfig()
   const dimensions = useTerminalDimensions()
 
-  const filepath = createMemo(() => {
-    const value = props.request.metadata?.filepath
-    return typeof value === "string" ? value : ""
-  })
-  const diff = createMemo(() => {
-    const value = props.request.metadata?.diff
-    return typeof value === "string" ? value : ""
-  })
-
+  const review = createMemo(() => getEditReview(props.request))
+  const diffs = createMemo(() => getEditDiffs(props.request))
   const view = createMemo(() => {
-    const diffStyle = config.diff_style
-    if (diffStyle === "stacked") return "unified"
+    if (config.diff_style === "stacked") return "unified"
     return dimensions().width > 120 ? "split" : "unified"
   })
-
-  const ft = createMemo(() => filetype(filepath()))
   const scrollAcceleration = createMemo(() => getScrollAcceleration(config))
 
   return (
-    <box flexDirection="column" gap={1}>
-      <Show when={diff()}>
-        <scrollbox
-          height="100%"
-          scrollAcceleration={scrollAcceleration()}
-          verticalScrollbarOptions={{
-            trackOptions: {
-              backgroundColor: theme.background,
-              foregroundColor: theme.borderActive,
-            },
-          }}
-        >
-          <diff
-            diff={diff()}
-            view={view()}
-            filetype={ft()}
-            syntaxStyle={syntax()}
-            showLineNumbers={true}
-            width="100%"
-            wrapMode="word"
-            fg={theme.text}
-            addedBg={theme.diffAddedBg}
-            removedBg={theme.diffRemovedBg}
-            contextBg={theme.diffContextBg}
-            addedSignColor={theme.diffHighlightAdded}
-            removedSignColor={theme.diffHighlightRemoved}
-            lineNumberFg={theme.diffLineNumber}
-            lineNumberBg={theme.diffContextBg}
-            addedLineNumberBg={theme.diffAddedLineNumberBg}
-            removedLineNumberBg={theme.diffRemovedLineNumberBg}
-          />
-        </scrollbox>
-      </Show>
-      <Show when={!diff()}>
-        <box paddingLeft={1}>
-          <text fg={theme.textMuted}>No diff provided</text>
-        </box>
-      </Show>
+    <box flexDirection="column" flexGrow={1} flexShrink={1} minHeight={0}>
+      <scrollbox
+        height="100%"
+        flexGrow={1}
+        flexShrink={1}
+        minHeight={0}
+        scrollAcceleration={scrollAcceleration()}
+        verticalScrollbarOptions={{
+          trackOptions: {
+            backgroundColor: theme.background,
+            foregroundColor: theme.borderActive,
+          },
+        }}
+      >
+        <EditExplanation
+          review={review()}
+          textColor={theme.text}
+          mutedColor={theme.textMuted}
+          errorColor={theme.error}
+        />
+        <Show when={diffs().length > 0} fallback={<text fg={theme.textMuted}>No diff provided</text>}>
+          <For each={diffs()}>
+            {(item) => (
+              <box flexDirection="column" flexShrink={0}>
+                <Show when={review().enabled && diffs().length > 1}>
+                  <text fg={theme.textMuted} wrapMode="word">
+                    {item.path}
+                  </text>
+                </Show>
+                <diff
+                  diff={item.diff}
+                  view={view()}
+                  filetype={filetype(item.path)}
+                  syntaxStyle={syntax()}
+                  showLineNumbers={true}
+                  width="100%"
+                  wrapMode="word"
+                  fg={theme.text}
+                  addedBg={theme.diffAddedBg}
+                  removedBg={theme.diffRemovedBg}
+                  contextBg={theme.diffContextBg}
+                  addedSignColor={theme.diffHighlightAdded}
+                  removedSignColor={theme.diffHighlightRemoved}
+                  lineNumberFg={theme.diffLineNumber}
+                  lineNumberBg={theme.diffContextBg}
+                  addedLineNumberBg={theme.diffAddedLineNumberBg}
+                  removedLineNumberBg={theme.diffRemovedLineNumberBg}
+                />
+              </box>
+            )}
+          </For>
+        </Show>
+      </scrollbox>
     </box>
   )
 }
@@ -109,6 +116,19 @@ function TextBody(props: { title: string; description?: string; icon?: string })
 }
 
 export function PermissionPrompt(props: { request: PermissionRequest; directory?: string }) {
+  // A new request must not inherit an old selection, reject form, or "always" confirmation.
+  return (
+    <Show when={props.request.id} keyed>
+      {(id) => <PermissionPromptContent request={props.request} directory={props.directory} requestID={id} />}
+    </Show>
+  )
+}
+
+function PermissionPromptContent(props: {
+  request: PermissionRequest
+  directory?: string
+  requestID: PermissionRequest["id"]
+}) {
   const sdk = useSDK()
   const project = useProject()
   const sync = useSync()
@@ -163,11 +183,12 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
           options={{ confirm: "Confirm", cancel: "Cancel" }}
           escapeKey="cancel"
           onSelect={(option) => {
+            if (props.request.id !== props.requestID) return
             setStore("stage", "permission")
-            if (option === "cancel") return
+            if (option === "cancel" || selectEditReviewOption(props.request, "always") !== "always") return
             void sdk.client.permission.reply({
               reply: "always",
-              requestID: props.request.id,
+              requestID: props.requestID,
               directory: props.directory,
               workspace: project.workspace.current(),
             })
@@ -177,9 +198,10 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
       <Match when={store.stage === "reject"}>
         <RejectPrompt
           onConfirm={(message) => {
+            if (props.request.id !== props.requestID) return
             void sdk.client.permission.reply({
               reply: "reject",
-              requestID: props.request.id,
+              requestID: props.requestID,
               directory: props.directory,
               message: message || undefined,
               workspace: project.workspace.current(),
@@ -380,7 +402,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
             }
           }
 
-          const current = info()
+          const current = createMemo(info)
 
           const header = () => (
             <box flexDirection="column" gap={0}>
@@ -390,9 +412,9 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
               </box>
               <box flexDirection="row" gap={1} paddingLeft={2} flexShrink={0}>
                 <text fg={theme.textMuted} flexShrink={0}>
-                  {current.icon}
+                  {current().icon}
                 </text>
-                <text fg={theme.text}>{current.title}</text>
+                <text fg={theme.text}>{current().title}</text>
               </box>
             </box>
           )
@@ -401,23 +423,27 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
             <Prompt
               title="Permission required"
               header={header()}
-              body={current.body}
-              options={{ once: "Allow once", always: "Allow always", reject: "Reject" }}
+              body={current().body}
+              options={editReviewOptions(props.request)}
               escapeKey="reject"
               fullscreen
               onSelect={(option) => {
-                if (option === "always") {
+                if (props.request.id !== props.requestID) return
+                // Every mouse/keyboard route uses the current request's allowed choices.
+                const answer = selectEditReviewOption(props.request, option)
+                if (!answer) return
+                if (answer === "always") {
                   setStore("stage", "always")
                   return
                 }
-                if (option === "reject") {
+                if (answer === "reject") {
                   if (session()?.parentID) {
                     setStore("stage", "reject")
                     return
                   }
                   void sdk.client.permission.reply({
                     reply: "reject",
-                    requestID: props.request.id,
+                    requestID: props.requestID,
                     directory: props.directory,
                     workspace: project.workspace.current(),
                   })
@@ -425,7 +451,7 @@ export function PermissionPrompt(props: { request: PermissionRequest; directory?
                 }
                 void sdk.client.permission.reply({
                   reply: "once",
-                  requestID: props.request.id,
+                  requestID: props.requestID,
                   directory: props.directory,
                   workspace: project.workspace.current(),
                 })
@@ -534,12 +560,14 @@ function Prompt<const T extends Record<string, string>>(props: {
   const { theme } = useTheme()
   const tuiConfig = useTuiConfig()
   const dimensions = useTerminalDimensions()
-  const keys = Object.keys(props.options) as (keyof T)[]
+  const keys = createMemo(() => Object.keys(props.options) as (keyof T)[])
   const [store, setStore] = createStore({
-    selected: keys[0],
+    selected: keys()[0],
     expanded: false,
   })
   const narrow = createMemo(() => dimensions().width < 80)
+  // Options can change when malformed metadata is replaced; never keep a removed option selected.
+  const selected = createMemo(() => (keys().includes(store.selected) ? store.selected : keys()[0]))
   const fullscreenHint = useCommandShortcut("permission.prompt.fullscreen")
 
   useBindings(() => ({
@@ -570,8 +598,8 @@ function Prompt<const T extends Record<string, string>>(props: {
         desc: "Previous permission option",
         group: "Permission",
         cmd: () => {
-          const idx = keys.indexOf(store.selected)
-          const next = keys[(idx - 1 + keys.length) % keys.length]
+          const idx = keys().indexOf(selected())
+          const next = keys()[(idx - 1 + keys().length) % keys().length]
           setStore("selected", next)
         },
       },
@@ -580,8 +608,8 @@ function Prompt<const T extends Record<string, string>>(props: {
         desc: "Previous permission option",
         group: "Permission",
         cmd: () => {
-          const idx = keys.indexOf(store.selected)
-          const next = keys[(idx - 1 + keys.length) % keys.length]
+          const idx = keys().indexOf(selected())
+          const next = keys()[(idx - 1 + keys().length) % keys().length]
           setStore("selected", next)
         },
       },
@@ -590,8 +618,8 @@ function Prompt<const T extends Record<string, string>>(props: {
         desc: "Next permission option",
         group: "Permission",
         cmd: () => {
-          const idx = keys.indexOf(store.selected)
-          const next = keys[(idx + 1) % keys.length]
+          const idx = keys().indexOf(selected())
+          const next = keys()[(idx + 1) % keys().length]
           setStore("selected", next)
         },
       },
@@ -600,8 +628,8 @@ function Prompt<const T extends Record<string, string>>(props: {
         desc: "Next permission option",
         group: "Permission",
         cmd: () => {
-          const idx = keys.indexOf(store.selected)
-          const next = keys[(idx + 1) % keys.length]
+          const idx = keys().indexOf(selected())
+          const next = keys()[(idx + 1) % keys().length]
           setStore("selected", next)
         },
       },
@@ -609,7 +637,7 @@ function Prompt<const T extends Record<string, string>>(props: {
         key: "return",
         desc: "Select permission option",
         group: "Permission",
-        cmd: () => props.onSelect(store.selected),
+        cmd: () => props.onSelect(selected()),
       },
       ...(props.escapeKey
         ? [
@@ -646,7 +674,16 @@ function Prompt<const T extends Record<string, string>>(props: {
             position: "relative",
           })}
     >
-      <box gap={1} paddingLeft={1} paddingRight={3} paddingTop={1} paddingBottom={1} flexGrow={1}>
+      <box
+        gap={1}
+        paddingLeft={1}
+        paddingRight={3}
+        paddingTop={1}
+        paddingBottom={1}
+        flexGrow={1}
+        flexShrink={1}
+        minHeight={0}
+      >
         <Show
           when={props.header}
           fallback={
@@ -675,19 +712,19 @@ function Prompt<const T extends Record<string, string>>(props: {
         alignItems={narrow() ? "flex-start" : "center"}
       >
         <box flexDirection="row" gap={1} flexShrink={0}>
-          <For each={keys}>
+          <For each={keys()}>
             {(option) => (
               <box
                 paddingLeft={1}
                 paddingRight={1}
-                backgroundColor={option === store.selected ? theme.warning : theme.backgroundMenu}
+                backgroundColor={option === selected() ? theme.warning : theme.backgroundMenu}
                 onMouseOver={() => setStore("selected", option)}
                 onMouseUp={() => {
                   setStore("selected", option)
                   props.onSelect(option)
                 }}
               >
-                <text fg={option === store.selected ? selectedForeground(theme, theme.warning) : theme.textMuted}>
+                <text fg={option === selected() ? selectedForeground(theme, theme.warning) : theme.textMuted}>
                   {props.options[option]}
                 </text>
               </box>
