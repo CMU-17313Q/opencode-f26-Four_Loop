@@ -45,6 +45,10 @@ function lock(filePath: string) {
 }
 
 export const Parameters = Schema.Struct({
+  explanation: Schema.optional(Schema.String).annotate({
+    description:
+      "Explain what this change does and why, naming the actual file and relevant symbols. Required when explain-before-edit is enabled; at most 4000 characters after trimming.",
+  }),
   filePath: Schema.String.annotate({ description: "The absolute path to the file to modify" }),
   oldString: Schema.String.annotate({ description: "The text to replace" }),
   newString: Schema.String.annotate({
@@ -106,6 +110,7 @@ export const EditTool = Tool.define(
                   metadata: {
                     filepath: filePath,
                     diff,
+                    ...(params.explanation === undefined ? {} : { explanation: params.explanation }),
                   },
                 })
                 yield* afs.writeWithDirs(filePath, Bom.join(contentNew, desiredBom))
@@ -149,6 +154,7 @@ export const EditTool = Tool.define(
                 metadata: {
                   filepath: filePath,
                   diff,
+                  ...(params.explanation === undefined ? {} : { explanation: params.explanation }),
                 },
               })
 
