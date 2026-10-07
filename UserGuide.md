@@ -172,5 +172,12 @@ GITHUB_ACTIONS=false bun turbo test --concurrency=4
 
 ### Verification evidence
 
-Add the actual terminal results, manual observations, and CI run link in the UI PR after performing them.
-Passing tests cover the cases exercised; they do not establish that no defects remain.
+The terminal UI was verified with both automated and manual testing.
+
+- Permission UI tests: 40 passed, 0 failed.
+- Full TUI test suite: 233 passed, 1 skipped, 0 failed.
+- TUI typecheck passed.
+- Manual end-to-end testing used a buggy Dijkstra implementation. Before approval, the source file remained unchanged. After accepting the proposed edit, the program returned the correct shortest-path result of 3 instead of 101.
+- GitHub Actions `test` and `typecheck` both passed on PR #18.
+
+These checks cover explanation rendering, protected approval choices, malformed metadata, multi-file changes, consecutive requests, and normal unprotected behavior.
