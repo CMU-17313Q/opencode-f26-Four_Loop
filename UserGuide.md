@@ -6,6 +6,136 @@ Each teammate owns one section below.
 
 ---
 
+## Targeted edit explanations (Yousef, issue #11, PR #15)
+
+### What it does
+
+The `edit` tool replaces matching text inside a file. Unlike `write`, it does not require the
+agent to send the entire file. This contribution adds an optional `explanation` input and
+forwards it with the existing diff to the shared permission service, including the edit tool's
+new-file path. The tool instructions ask for a concise description of what changes and why.
+
+With `explain_before_edit` enabled, a supported proposal needs a nonblank explanation of at
+most 4,000 characters after trimming. An effective deny rule still blocks the operation.
+Otherwise, the proposal waits for its own approval before the edit is applied. These rules
+come from the shared backend; the edit tool does not introduce a second approval policy.
+
+### Enable it and choose the tool
+
+Use the team's checkout containing both the edit integration and terminal review UI. In the
+project being edited, add `"explain_before_edit": true` to `opencode.json`, preserving existing
+settings. Restart OpenCode after changing the setting.
+
+The current tool registry selects editing tools by model ID: IDs containing `gpt-`, but neither
+`gpt-4` nor `oss`, use `apply_patch` instead of `edit`/`write`. For this manual test, use a
+configured, tool-capable model outside that group and verify that the actual call is `edit`.
+A successful patch or shell command is not an edit-tool test. Existing permission rules and
+agent mode can also restrict the available tools.
+
+### Manual user test
+
+Use a disposable project, not the team repository. From the repository root, run:
+
+```bash
+bun install --frozen-lockfile
+DEMO_DIR="$(mktemp -d /tmp/opencode-edit-demo.XXXXXX)"
+git -C "$DEMO_DIR" init -q
+printf 'Hi\n' > "$DEMO_DIR/greeting.txt"
+printf '{"explain_before_edit": true}\n' > "$DEMO_DIR/opencode.json"
+printf 'Copy this line into a second terminal:\nDEMO_DIR="%s"\n' "$DEMO_DIR"
+bun run dev "$DEMO_DIR"
+```
+
+Connect a provider using the normal OpenCode setup and select a model as described above.
+Keep API keys out of the repository. The automated tests below do not need a live provider;
+manual agent use can consume provider credit.
+
+Ask the agent:
+
+> Read greeting.txt, then use the edit tool to change Hi to Hello. Explain what changes and
+> why. Do not use write, apply_patch, or a shell command to modify it. If I reject the proposal,
+> stop instead of submitting the change again.
+
+The review should show **Why this change?**, the affected file, the proposed diff, and
+**Accept change / Reject**, with no **Allow always** option for this protected proposal.
+
+Copy the printed `DEMO_DIR` assignment into a second terminal, then inspect the file there:
+
+```bash
+cat "$DEMO_DIR/greeting.txt"
+```
+
+The expected outcomes are:
+
+| Stage | Expected contents of greeting.txt |
+| --- | --- |
+| Proposal is waiting for a decision | Hi |
+| Reject the proposal | Hi |
+| Ask again explicitly, then accept the new proposal | Hello |
+
+Check the contents after each decision. An explanation describes the agent's proposed reason;
+it is not proof that its proposed change is correct. If several calls are proposed, each
+protected call has a separate review. Rejecting does not undo earlier accepted edits and may
+also reject other pending requests in the same session.
+
+For the disabled-mode check, exit OpenCode. In the original terminal, change only the setting
+in the disposable project's configuration and restart:
+
+```bash
+printf '{"explain_before_edit": false}\n' > "$DEMO_DIR/opencode.json"
+bun run dev "$DEMO_DIR"
+```
+
+Request another targeted edit. Normal allow/ask/deny rules apply; disabling this feature does
+not guarantee automatic approval and does not remove an existing deny rule.
+
+### Automated tests
+
+From the repository root:
+
+```bash
+cd packages/opencode
+bun test --timeout 30000 ./test/tool/edit-tool-explanation.test.ts
+bun test --timeout 30000 ./test/tool/edit.test.ts ./test/tool/parameters.test.ts
+bun run typecheck
+cd ../core
+bun run typecheck
+cd ../..
+```
+
+The focused suite is [`edit-tool-explanation.test.ts`](packages/opencode/test/tool/edit-tool-explanation.test.ts).
+It uses the real edit tool, filesystem, configuration, and permission service. External
+account/authentication and package/network dependencies use test fixtures.
+
+| Coverage | Reason for the check |
+| --- | --- |
+| Explanation and diff arrive before modification; approval applies the change | Verifies the tool-to-permission connection and review-before-edit ordering. |
+| Existing-file and new-file paths | Neither edit path should omit the explanation or bypass review. |
+| Rejection and cancellation preserve the target | A waiting or rejected edit must not be applied. |
+| Missing, blank, and over-limit explanations | Enabled mode must enforce the backend's input requirements. |
+| Configured deny rules | An explanation must not override a forbidden operation. |
+| Disabled and omitted configuration | Existing calls without an explanation remain compatible. |
+| Optional string schema and rejection of a non-string value | Checks the model-facing input shape and decoding. |
+
+The existing [`edit.test.ts`](packages/opencode/test/tool/edit.test.ts) suite checks the edit
+implementation beyond this feature. [`parameters.test.ts`](packages/opencode/test/tool/parameters.test.ts)
+checks the tool schemas, including the saved explanation-field snapshot.
+
+### Coverage rationale and limits
+
+These tests exercise every acceptance criterion in issue #11: explanation forwarding,
+approval-before-modification, rejection, and compatibility with the feature disabled. Both
+file paths and the main failure cases are covered, with existing edit tests and typechecks
+providing regression checks. The manual steps above additionally exercise the model, tool,
+backend, and terminal screen together.
+
+The automated tests supply explanation text themselves. They do not establish that a live
+model always chooses `edit` or gives a correct explanation. Missing or invalid explanations
+can fail before a review screen appears; the backend does not guarantee an automatic retry.
+This feature is not a sandbox for shell commands or unrelated tools.
+
+---
+
 ## Write tool explanations (Hassan, issue #12, PR #16)
 
 ### What it does
