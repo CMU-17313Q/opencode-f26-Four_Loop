@@ -311,3 +311,74 @@ The terminal UI was verified with both automated and manual testing.
 - GitHub Actions `test` and `typecheck` both passed on PR #18.
 
 These checks cover explanation rendering, protected approval choices, malformed metadata, multi-file changes, consecutive requests, and normal unprotected behavior.
+
+---
+
+## Reject with feedback
+
+Explained edit reviews now offer **Reject with feedback** alongside **Accept change** and
+**Reject**. Use it to tell the agent what to change in its next proposal, for example:
+“Keep the existing function name and change only the greeting.” This extends the edit tool's
+explanation support from issue #11 / PR #15 using the existing permission feedback channel.
+
+### How to use it
+
+1. Set `"explain_before_edit": true` in the project’s `opencode.json` and restart OpenCode.
+2. Ask for an edit and check the actual tool call, explanation, affected files, and diff.
+3. Select **Reject with feedback** using the mouse or left/right followed by Enter.
+4. Enter your correction and press Enter. The proposed edit is rejected; the agent receives
+   your feedback. Leading and trailing whitespace is removed.
+5. Review any revised proposal separately. Feedback never approves the original or revised edit.
+
+Escape in the feedback form cancels the form and returns to the pending review without sending
+feedback or a decision. Submitting an empty or whitespace-only form behaves like plain Reject.
+Plain Reject and Escape in the main review keep their existing behavior. Invalid protected
+proposals still offer only Reject. Ordinary permissions with the feature disabled keep their
+existing options; subagent rejection feedback remains available.
+
+### Manual user test
+
+Use a disposable project with `greeting.txt` containing `Hi` and the feature enabled. Choose a
+configured model that exposes the `edit` tool; model IDs containing `gpt-` but neither `gpt-4`
+nor `oss` use `apply_patch` instead.
+
+Ask: “Read greeting.txt and use edit to change Hi to Hello. Explain why.”
+
+- While the proposal waits, confirm the file still contains `Hi`.
+- Open **Reject with feedback**, type a draft, then press Escape. The original review should
+  return, and the file should still contain `Hi`.
+- Open it again and submit: “Use Welcome instead of Hello. Propose a new edit and wait for approval.”
+- Confirm the rejected proposal leaves `Hi` unchanged. If the agent proposes `Hi` → `Welcome`,
+  verify it has a fresh explanation and review. Accept it and confirm the file contains `Welcome`.
+- Repeat with plain Reject and with the feature disabled to check the existing workflows.
+
+The agent may respond to feedback with a revised proposal or a question; a retry is not guaranteed.
+Rejection does not undo earlier accepted edits and can also reject other pending requests in the
+same session. This feature does not protect shell commands or unrelated tools.
+
+### Automated tests and coverage
+
+From the repository root:
+
+```bash
+cd packages/tui
+bun test --timeout 30000 ./test/permission
+bun typecheck
+cd ../opencode
+bun test --timeout 30000 ./test/tool/edit-tool-explanation.test.ts ./test/permission/explain-before-edit.test.ts
+bun typecheck
+```
+
+[`reject-feedback.test.tsx`](packages/tui/test/permission/reject-feedback.test.tsx) renders the
+actual permission dialog and exercises its keyboard controls and SDK replies with a test HTTP
+transport. It checks trimmed feedback, plain rejection, blank input, cancellation, narrow
+layout, and clearing a draft when a new request arrives.
+[`edit-review.test.ts`](packages/tui/test/permission/edit-review.test.ts) checks that feedback is
+available only for valid protected reviews and never grants approval.
+[`edit-tool-explanation.test.ts`](packages/opencode/test/tool/edit-tool-explanation.test.ts) uses
+the real edit tool and permission service to verify feedback delivery, unchanged files after
+rejection, and a fresh approval requirement for another proposal on both edit paths.
+
+These checks cover the UI-to-permission reply and permission-to-edit boundaries. The manual
+test additionally checks a live model receiving the correction and producing a revised proposal;
+automated tests do not establish the quality of the model’s response.

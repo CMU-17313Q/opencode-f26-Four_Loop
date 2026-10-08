@@ -15,7 +15,7 @@ function request(metadata: Record<string, unknown> = {}): EditReviewRequest {
   }
 }
 
-test("valid explained edits expose once/reject, never always", () => {
+test("valid explained edits expose acceptance, rejection, and feedback, never always", () => {
   const input = request({ explanation: "  Explain this change.\n" })
   expect(getEditReview(input)).toMatchObject({
     enabled: true,
@@ -23,9 +23,14 @@ test("valid explained edits expose once/reject, never always", () => {
     files: ["src/example.ts"],
   })
   expect(getEditReview(input).problem).toBeUndefined()
-  expect(editReviewOptions(input)).toEqual({ once: "Accept change", reject: "Reject" })
+  expect(editReviewOptions(input)).toEqual({
+    once: "Accept change",
+    reject: "Reject",
+    feedback: "Reject with feedback",
+  })
   expect(selectEditReviewOption(input, "once")).toBe("once")
   expect(selectEditReviewOption(input, "reject")).toBe("reject")
+  expect(selectEditReviewOption(input, "feedback")).toBe("feedback")
   expect(selectEditReviewOption(input, "always")).toBeUndefined()
   expect(input.metadata).toMatchObject({ explanation: "  Explain this change.\n" })
 })
@@ -36,6 +41,7 @@ for (const value of [undefined, null, 5, {}, [], "", " \n ", "x".repeat(MAX_REVI
     expect(getEditReview(input).problem).toBeDefined()
     expect(editReviewOptions(input)).toEqual({ reject: "Reject" })
     expect(selectEditReviewOption(input, "once")).toBeUndefined()
+    expect(selectEditReviewOption(input, "feedback")).toBeUndefined()
     expect(selectEditReviewOption(input, "always")).toBeUndefined()
     expect(selectEditReviewOption(input, "reject")).toBe("reject")
   })
@@ -51,6 +57,7 @@ for (const metadata of [undefined, null, false, [], {}, { explainBeforeEdit: fal
   test(`legacy metadata (${JSON.stringify(metadata)}) preserves ordinary options`, () => {
     const input = { permission: "edit", metadata }
     expect(getEditReview(input).enabled).toBe(false)
+    expect(selectEditReviewOption(input, "feedback")).toBeUndefined()
     expect(editReviewOptions(input)).toEqual({ once: "Allow once", always: "Allow always", reject: "Reject" })
     expect(selectEditReviewOption(input, "always")).toBe("always")
   })
@@ -119,7 +126,11 @@ test("frozen request metadata can be rendered without changing the request", () 
   })
   const input = Object.freeze({ permission: "edit", metadata })
   expect(getEditReview(input).explanation).toBe("Explain this change.")
-  expect(editReviewOptions(input)).toEqual({ once: "Accept change", reject: "Reject" })
+  expect(editReviewOptions(input)).toEqual({
+    once: "Accept change",
+    reject: "Reject",
+    feedback: "Reject with feedback",
+  })
   expect(input.metadata.explanation).toBe("  Explain this change.  ")
 })
 
@@ -170,7 +181,11 @@ test("blank relative paths do not hide a usable absolute path", () => {
 })
 
 test("one-character explanation is accepted while spaces are rejected", () => {
-  expect(editReviewOptions(request({ explanation: " x " }))).toEqual({ once: "Accept change", reject: "Reject" })
+  expect(editReviewOptions(request({ explanation: " x " }))).toEqual({
+    once: "Accept change",
+    reject: "Reject",
+    feedback: "Reject with feedback",
+  })
   expect(editReviewOptions(request({ explanation: "   " }))).toEqual({ reject: "Reject" })
 })
 
