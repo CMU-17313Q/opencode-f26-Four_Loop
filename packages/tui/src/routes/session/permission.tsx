@@ -203,7 +203,7 @@ function PermissionPromptContent(props: {
               reply: "reject",
               requestID: props.requestID,
               directory: props.directory,
-              message: message || undefined,
+              message: message.trim() || undefined,
               workspace: project.workspace.current(),
             })
           }}
@@ -436,6 +436,10 @@ function PermissionPromptContent(props: {
                   setStore("stage", "always")
                   return
                 }
+                if (answer === "feedback") {
+                  setStore("stage", "reject")
+                  return
+                }
                 if (answer === "reject") {
                   if (session()?.parentID) {
                     setStore("stage", "reject")
@@ -509,7 +513,7 @@ function RejectPrompt(props: { onConfirm: (message: string) => void; onCancel: (
           <text fg={theme.text}>Reject permission</text>
         </box>
         <box paddingLeft={1}>
-          <text fg={theme.textMuted}>Tell OpenCode what to do differently</text>
+          <text fg={theme.textMuted}>Tell OpenCode what to do differently (optional)</text>
         </box>
       </box>
       <box

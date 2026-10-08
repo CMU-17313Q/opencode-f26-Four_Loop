@@ -174,6 +174,37 @@ for (const existed of [true, false]) {
     enabled,
   )
 
+  it.instance(
+    `${name}: rejection feedback preserves the target and a revised edit needs fresh approval`,
+    () =>
+      Effect.gen(function* () {
+        const permission = yield* Permission.Service
+        const file = yield* target(existed)
+        const fiber = yield* run(file, existed, explanation, context(permission)).pipe(Effect.forkScoped)
+        const request = yield* waitForPending
+        const feedback = "Keep the existing function name and change only the greeting."
+        yield* permission.reply({ requestID: request.id, reply: "reject", message: feedback })
+        const error = yield* failure(Fiber.join(fiber))
+        expect(error).toBeInstanceOf(PermissionV1.CorrectedError)
+        expect(error).toMatchObject({ feedback })
+        expect(String(error)).toContain(feedback)
+        yield* unchanged(file, existed)
+        expect(yield* permission.list()).toHaveLength(0)
+
+        const revised = yield* run(file, existed, "Update only the greeting as requested.", context(permission)).pipe(
+          Effect.forkScoped,
+        )
+        const pending = yield* waitForPending
+        expect(pending.id).not.toBe(request.id)
+        expect(pending.metadata.explanation).toBe("Update only the greeting as requested.")
+        yield* unchanged(file, existed)
+        yield* permission.reply({ requestID: pending.id, reply: "once" })
+        yield* Fiber.join(revised)
+        expect(yield* Effect.promise(() => Bun.file(file).text())).toBe("new\n")
+      }),
+    enabled,
+  )
+
   for (const invalid of [undefined, " \n ", "x".repeat(MAX_EDIT_EXPLANATION_LENGTH + 1)]) {
     it.instance(
       `${name}: invalid explanation (${invalid === undefined ? "missing" : invalid.length}) blocks modification`,

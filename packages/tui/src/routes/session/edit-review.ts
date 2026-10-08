@@ -67,15 +67,15 @@ export function editReviewOptions(request: EditReviewRequest): Record<string, st
   // Normally invalid explanations never get this far: the backend rejects them.
   // Keep the UI conservative if malformed protected metadata nevertheless arrives.
   if (review.problem) return { reject: "Reject" }
-  return { once: "Accept change", reject: "Reject" }
+  return { once: "Accept change", reject: "Reject", feedback: "Reject with feedback" }
 }
 
 /** Shared by mouse, keyboard, and the existing always-confirmation handler. */
 export function selectEditReviewOption(
   request: EditReviewRequest,
   option: PropertyKey,
-): "once" | "always" | "reject" | undefined {
-  if (option !== "once" && option !== "always" && option !== "reject") return
+): "once" | "always" | "reject" | "feedback" | undefined {
+  if (option !== "once" && option !== "always" && option !== "reject" && option !== "feedback") return
   return Object.hasOwn(editReviewOptions(request), option) ? option : undefined
 }
 
