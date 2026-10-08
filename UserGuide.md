@@ -382,3 +382,148 @@ rejection, and a fresh approval requirement for another proposal on both edit pa
 These checks cover the UI-to-permission reply and permission-to-edit boundaries. The manual
 test additionally checks a live model receiving the correction and producing a revised proposal;
 automated tests do not establish the quality of the model’s response.
+
+---
+
+## Patch proposal explanations (Rashid, issue #14, PR #17)
+
+### What it does
+
+The `apply_patch` tool applies a structured patch that can create, update, delete, or move files.
+This contribution adds an optional `explanation` input beside `patchText` and forwards it with
+the existing diff and affected-file metadata to the shared permission service. The explanation
+is separate from the patch syntax; the patch parser and application logic are reused.
+
+With `explain_before_edit` enabled, the backend requires a nonblank explanation of at most
+4,000 characters after trimming and approval of the complete proposal. **One decision covers
+one patch proposal**, even when it affects several files; there is no per-line or per-file
+acceptance within that proposal. Denials evaluated by the permission service remain enforced.
+
+### Enable it and choose the tool
+
+Use the team's checkout containing both the patch integration and terminal review UI. In the
+project being edited, add `"explain_before_edit": true` to `opencode.json`, preserving existing
+settings. Restart OpenCode after changing the setting.
+
+In the current [`tool registry`](packages/opencode/src/tool/registry.ts), `apply_patch` is
+selected for model IDs containing `gpt-`, but neither `gpt-4` nor `oss`. Other model IDs normally
+receive `edit`/`write` instead. For this manual test, use a configured, tool-capable model in
+the patch-enabled group and check its current provider pricing before use. Permission rules
+and agent mode can also restrict tools. Asking for `apply_patch` does not make an unavailable
+tool appear; a run using `edit` or shell commands does not verify the patch integration.
+
+The automated tests below invoke the patch tool directly and do not need a live model or API credit.
+
+### Manual user test
+
+Use only disposable files for the delete/move example. From the repository root, run:
+
+```bash
+bun install --frozen-lockfile
+DEMO_DIR="$(mktemp -d /tmp/opencode-patch-demo.XXXXXX)"
+git -C "$DEMO_DIR" init -q
+printf 'old\n' > "$DEMO_DIR/modify.txt"
+printf 'obsolete\n' > "$DEMO_DIR/delete.txt"
+printf 'original\n' > "$DEMO_DIR/original.txt"
+printf '{"explain_before_edit": true}\n' > "$DEMO_DIR/opencode.json"
+printf 'Copy this line into a second terminal:\nDEMO_DIR="%s"\n' "$DEMO_DIR"
+bun run dev "$DEMO_DIR"
+```
+
+Connect a provider using the normal OpenCode setup and choose a model as described above.
+Do not commit provider credentials. Ask the agent:
+
+> Read the sample files, then use ONE apply_patch call to create nested/new.txt containing
+> created, change modify.txt from old to new, delete delete.txt, and move original.txt to
+> moved.txt while changing its contents from original to moved. Include one explanation
+> covering all four operations. Do not modify opencode.json or use edit, write, or shell
+> commands to change files. If I reject, stop instead of submitting the patch again.
+
+The protected review should show the explanation, affected files, and the proposed diffs,
+with **Accept change / Reject** and no **Allow always**. Inspect both ends of the move and
+review all files before deciding. Use the displayed fullscreen shortcut and scroll area as needed.
+
+Copy the printed `DEMO_DIR` assignment into a second terminal. Run this inspection command
+while the proposal is pending and again after each decision:
+
+```bash
+for name in modify.txt delete.txt original.txt nested/new.txt moved.txt; do
+  printf '\n%s: ' "$name"
+  if test -f "$DEMO_DIR/$name"; then
+    cat "$DEMO_DIR/$name"
+  else
+    printf '(missing)\n'
+  fi
+done
+```
+
+Reject the first proposal. Then explicitly ask again and accept the new proposal. The expected
+file state is:
+
+| File | While waiting / after Reject | After Accept |
+| --- | --- | --- |
+| modify.txt | old | new |
+| delete.txt | obsolete | Missing |
+| original.txt | original | Missing |
+| nested/new.txt | Missing | created |
+| moved.txt | Missing | moved |
+
+If the agent splits the task into several calls, review each call separately and record that
+this was not the one-proposal scenario. Rejection does not undo a previously accepted patch
+and may also reject other pending requests in the same session.
+
+To check disabled mode, exit OpenCode and, in the original terminal, restart with the setting off:
+
+```bash
+printf '{"explain_before_edit": false}\n' > "$DEMO_DIR/opencode.json"
+bun run dev "$DEMO_DIR"
+```
+
+Ask for a small patch to modify.txt. The normal permission workflow should apply. Existing
+deny rules still matter, and an ordinary permission prompt may still appear.
+
+### Automated tests
+
+From the repository root:
+
+```bash
+cd packages/opencode
+bun test --timeout 30000 ./test/tool/apply-patch-explanation.test.ts
+bun test --timeout 30000 ./test/tool/apply_patch.test.ts ./test/tool/parameters.test.ts
+bun run typecheck
+cd ../core
+bun run typecheck
+cd ../..
+```
+
+The focused suite is [`apply-patch-explanation.test.ts`](packages/opencode/test/tool/apply-patch-explanation.test.ts).
+It exercises the real patch tool, filesystem, configuration, and permission service, using
+fixtures for external account/authentication and package/network dependencies.
+
+| Coverage | Reason for the check |
+| --- | --- |
+| One explanation, file metadata, and diff accompany an add/update/delete/move proposal | Verifies the complete proposal reaches the approval boundary. |
+| No target changes while waiting; approval applies the expected file changes | Checks ordering and the successful multi-file result. |
+| Rejection and cancellation preserve all sample targets | Verifies the unapproved proposal is not applied. |
+| Missing, blank, and over-limit explanations | Enabled mode must enforce the backend's input requirements. |
+| Denying delete.txt blocks the sample proposal | Checks a denied affected path stops the proposal before application. |
+| Disabled and omitted configuration | Calls containing only patchText remain compatible. |
+| Malformed, empty, and unapplicable patches | Checks these validation failures leave the sample targets unchanged. |
+| Separate patchText and optional explanation fields; non-string rejection | Checks schema compatibility and input decoding. |
+
+The existing [`apply_patch.test.ts`](packages/opencode/test/tool/apply_patch.test.ts) suite
+provides additional patch regression coverage, while
+[`parameters.test.ts`](packages/opencode/test/tool/parameters.test.ts) checks the model-facing schemas.
+
+### Coverage rationale and limits
+
+The focused cases cover issue #14's explanation forwarding, waiting, approval, rejection,
+and disabled-mode requirements, plus multi-file and error cases. Existing patch tests and
+package typechecks provide additional regression checks. The manual steps exercise the
+model-to-tool-to-screen interaction that the tool tests do not run.
+
+The tests provide explanation text directly; they do not establish its factual quality or
+live-model reliability. The denied-path case above is not exhaustive permission coverage
+for every source/destination combination. One approval for a patch is not a transactional
+rollback guarantee if filesystem operations fail after approval. This feature also does
+not govern arbitrary shell commands or unrelated tools.
