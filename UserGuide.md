@@ -314,7 +314,7 @@ These checks cover explanation rendering, protected approval choices, malformed 
 
 ---
 
-## Reject with feedback
+## Reject with feedback (Yousef, PR #20)
 
 Explained edit reviews now offer **Reject with feedback** alongside **Accept change** and
 **Reject**. Use it to tell the agent what to change in its next proposal, for example:
