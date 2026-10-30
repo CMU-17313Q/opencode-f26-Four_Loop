@@ -1,0 +1,12 @@
+{
+  "name": "p3-mutation",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.16.0"
+  },
+  "devDependencies": {
+    "@stryker-mutator/core": "8.7.1"
+  }
+}
