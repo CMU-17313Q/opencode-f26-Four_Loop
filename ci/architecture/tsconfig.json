@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "baseUrl": "../../packages/opencode",
+    "paths": {
+      "@/*": ["./src/*"]
+    },
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "preserve",
+    "target": "ESNext",
+    "allowJs": true,
+    "noEmit": true
+  },
+  "include": ["../../packages/opencode/src/tool/**/*"]
+}
