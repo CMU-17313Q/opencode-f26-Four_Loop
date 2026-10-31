@@ -1,0 +1,45 @@
+name: P3 Retire.js security
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  security:
+    name: Retire.js security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Check out the revision being tested
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          persist-credentials: false
+      - name: Install the repository's pinned Bun dependencies
+        uses: ./.github/actions/setup-bun
+        with:
+          install-flags: --frozen-lockfile
+      - name: Install check tooling
+        run: bash ci/security/setup.sh --ci
+      - name: Test report and safety guards
+        run: node --test ci/security/policy.test.mjs
+      - name: Check scanner inventory helpers
+        run: node --test ci/security/inventory.test.mjs
+      - name: Verify real-tool positive and negative controls
+        run: node ci/security/selftest.mjs
+      - name: Run the check on this repository
+        run: node ci/security/check.mjs
+      - name: Retain results, including failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: p3-security-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ci/security/out/
+          if-no-files-found: warn
+          retention-days: 14
