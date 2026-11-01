@@ -1,0 +1,38 @@
+name: P3 Full CI/CD Pipeline
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  architecture:
+    uses: ./.github/workflows/p3-architecture.yml
+
+  mutation:
+    uses: ./.github/workflows/p3-mutation.yml
+
+  security:
+    uses: ./.github/workflows/p3-security.yml
+
+  load:
+    uses: ./.github/workflows/p3-load.yml
+
+  tests:
+    uses: ./.github/workflows/test.yml
+
+  typecheck:
+    uses: ./.github/workflows/typecheck.yml
+
+  deploy:
+    name: Deploy to CMU VM after all checks pass
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    needs: [architecture, mutation, security, load, tests, typecheck]
+    uses: ./.github/workflows/VM-deploy.yml
+    secrets: inherit
