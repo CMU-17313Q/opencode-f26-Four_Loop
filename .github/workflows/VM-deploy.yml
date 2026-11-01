@@ -26,4 +26,14 @@ jobs:
             test "$(git rev-parse HEAD)" = "${{ github.sha }}"
             docker compose up -d --build
             docker compose ps
-            curl -fsS --retry 15 --retry-delay 2 --retry-connrefused http://127.0.0.1:4096/global/health > /dev/null
+            for attempt in $(seq 1 30); do
+              if curl -fsS --max-time 5 http://127.0.0.1:4096/global/health > /dev/null 2>&1; then
+                echo "OpenCode is healthy"
+                exit 0
+              fi
+              echo "Waiting for OpenCode ($attempt/30)"
+              sleep 2
+            done
+            echo "OpenCode failed its health check"
+            docker compose logs --tail 80 opencode
+            exit 1
