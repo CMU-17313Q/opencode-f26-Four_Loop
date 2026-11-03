@@ -75,7 +75,7 @@ test("keeps the patch card inside a fractionally short virtual row", async ({ pa
     before: "const outline = false\n",
     after: "const outline = true\n",
   }
-  const timeline = await setupTimeline(page, {
+  await setupTimeline(page, {
     messages: [
       userMessage(),
       assistantMessage([
@@ -89,7 +89,9 @@ test("keeps the patch card inside a fractionally short virtual row", async ({ pa
   const card = part.locator('[data-component="accordion"][data-scope="apply-patch"]')
   const row = page.locator("[data-timeline-key]", { has: part })
   await expect(card).toBeVisible()
-  await timeline.settle()
+  // The card shell appears before its asynchronous diff; measure only once both lines render.
+  await expect(card.getByText(file.before.trim(), { exact: true })).toBeVisible()
+  await expect(card.getByText(file.after.trim(), { exact: true })).toBeVisible()
 
   const geometry = await row.evaluate((element) => {
     const card = element.querySelector<HTMLElement>('[data-component="accordion"][data-scope="apply-patch"]')
@@ -107,8 +109,6 @@ test("keeps the patch card inside a fractionally short virtual row", async ({ pa
       cardHeight: cardRect.height,
     }
   })
-  await timeline.settle()
-
   expect(geometry.overflow).toBeCloseTo(0.49, 1)
   expect(geometry.paintOverflow).toBeLessThanOrEqual(0)
   const edges = await captureCardEdges(page, card)

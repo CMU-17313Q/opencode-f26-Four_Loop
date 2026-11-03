@@ -40,7 +40,11 @@ async function openProjectDialog(page: Page) {
   await expectAppVisible(add)
   await add.click()
   await expect(rows(page)).toHaveCount(5)
-  return page.getByRole("textbox").last()
+  const search = page
+    .getByRole("dialog", { name: "Open project", exact: true })
+    .getByRole("textbox", { name: "Search folders", exact: true })
+  await expect(search).toBeEditable()
+  return search
 }
 
 test("searches every recent project, not just the five most recent", async ({ page }) => {
@@ -50,6 +54,11 @@ test("searches every recent project, not just the five most recent", async ({ pa
   await search.fill("foxtrot")
 
   await expect(row(page, OUTSIDE_CAP)).toHaveCount(1)
+  await expect(
+    page
+      .getByRole("dialog", { name: "Open project", exact: true })
+      .getByRole("textbox", { name: "Clone from git URL", exact: true }),
+  ).toHaveValue("")
 })
 
 test("still caps the idle recent list at five projects", async ({ page }) => {
