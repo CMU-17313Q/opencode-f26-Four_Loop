@@ -69,6 +69,7 @@ export interface Options {
   readonly cwd: string
   readonly env?: Record<string, string>
   readonly maxOutputBytes?: number
+  readonly forceKillAfter?: ChildProcess.KillOptions["forceKillAfter"]
   readonly stdin?: ChildProcess.CommandInput
 }
 
@@ -117,8 +118,9 @@ const layer = Layer.effect(
             stdin: opts.stdin ?? "ignore",
             stdout: "pipe",
             stderr: "pipe",
+            forceKillAfter: opts.forceKillAfter,
           }),
-          { maxOutputBytes: opts.maxOutputBytes },
+          { maxOutputBytes: opts.maxOutputBytes, maxErrorBytes: opts.maxOutputBytes },
         )
         return {
           exitCode: result.exitCode,

@@ -16,6 +16,12 @@ COPY . .
 
 RUN bun install --frozen-lockfile
 
+# Build the local frontend and embed it in the OpenCode executable.
+# Explicit channel/version values allow builds without the .git directory.
+RUN OPENCODE_CHANNEL=latest OPENCODE_VERSION=1.18.15 \
+    bun run --cwd packages/opencode build --single --skip-install && \
+    cp packages/opencode/dist/opencode-linux-*/bin/opencode /usr/local/bin/opencode
+
 EXPOSE 4096
 
-CMD ["bun", "run", "--cwd", "packages/opencode", "--conditions=browser", "src/index.ts", "web", "--hostname", "0.0.0.0", "--port", "4096"]
+CMD ["/usr/local/bin/opencode", "serve", "--hostname", "0.0.0.0", "--port", "4096"]
