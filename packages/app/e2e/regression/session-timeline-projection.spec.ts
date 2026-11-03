@@ -128,42 +128,59 @@ test.describe("session timeline projection", () => {
     await expect(page.locator('[data-timeline-row="TurnGap"]')).toBeVisible()
   })
 
-  test("renders comment strips and historical diff summary overflow", async ({ page }) => {
-    const user = userMessage(
-      [
-        userText("The user made the following comment regarding lines 4 through 8 of src/a.ts: Keep this stable", {
-          id: "prt_comment_only",
-          synthetic: true,
-          metadata: {
-            opencodeComment: {
-              path: "src/a.ts",
-              selection: { startLine: 4, startChar: 0, endLine: 8, endChar: 0 },
-              comment: "Keep this stable",
+  for (const layout of ["legacy", "current"] as const) {
+    test(`renders ${layout === "legacy" ? "comment strips before" : "inline comments after"} layout retirement and historical diff summary overflow`, async ({
+      page,
+    }) => {
+      // A saved legacy preference is honored before retirement and overridden after it.
+      await page.clock.setFixedTime(new Date(layout === "legacy" ? "2026-09-01T12:00:00Z" : "2026-09-20T12:00:00Z"))
+      const user = userMessage(
+        [
+          userText("The user made the following comment regarding lines 4 through 8 of src/a.ts: Keep this stable", {
+            id: "prt_comment_only",
+            synthetic: true,
+            metadata: {
+              opencodeComment: {
+                path: "src/a.ts",
+                selection: { startLine: 4, startChar: 0, endLine: 8, endChar: 0 },
+                comment: "Keep this stable",
+              },
             },
-          },
-        }),
-        userText("Continue after the comment", { id: "prt_comment_visible" }),
-      ],
-      { summary: { diffs: Array.from({ length: 11 }, (_, index) => summaryDiff(index)) } },
-    )
-    const nextUser = userMessage(undefined, { id: "msg_2000_diff_next_user", created: 1700000010000 })
-    const nextAssistant = assistantMessage([], {
-      id: "msg_2001_diff_next_assistant",
-      parentID: "msg_2000_diff_next_user",
-      created: 1700000011000,
-    })
-    await setupTimeline(page, {
-      messages: [user, assistantMessage(), nextUser, nextAssistant],
-      settings: { newLayoutDesigns: false },
-    })
-    const scroller = page.locator(".scroll-view__viewport", { has: page.locator("[data-timeline-row]") })
-    await scroller.evaluate((element) => (element.scrollTop = 0))
+          }),
+          userText("Continue after the comment", { id: "prt_comment_visible" }),
+        ],
+        { summary: { diffs: Array.from({ length: 11 }, (_, index) => summaryDiff(index)) } },
+      )
+      const nextUser = userMessage(undefined, { id: "msg_2000_diff_next_user", created: 1700000010000 })
+      const nextAssistant = assistantMessage([], {
+        id: "msg_2001_diff_next_assistant",
+        parentID: "msg_2000_diff_next_user",
+        created: 1700000011000,
+      })
+      await setupTimeline(page, {
+        messages: [user, assistantMessage(), nextUser, nextAssistant],
+        settings: { newLayoutDesigns: false },
+      })
+      const scroller = page.locator(".scroll-view__viewport", { has: page.locator("[data-timeline-row]") })
+      await scroller.evaluate((element) => (element.scrollTop = 0))
 
-    await expect(page.locator('[data-timeline-row="CommentStrip"]')).toBeVisible()
-    await expect(page.getByText("Keep this stable", { exact: true })).toBeVisible()
-    await expect(page.locator('[data-timeline-row="DiffSummary"]')).toBeVisible()
-    await expect(page.getByText(/show all/i)).toBeVisible()
-  })
+      const strip = page.locator('[data-timeline-row="CommentStrip"]')
+      if (layout === "legacy") {
+        await expect(strip).toBeVisible()
+        await expect(strip.getByText("Keep this stable", { exact: true })).toBeVisible()
+      }
+      if (layout === "current") {
+        await expect(strip).toHaveCount(0)
+        const message = page
+          .locator('[data-timeline-row="UserMessage"]')
+          .filter({ hasText: "Continue after the comment" })
+        await expect(message.getByText("Keep this stable", { exact: true })).toBeVisible()
+      }
+      const summary = page.locator('[data-timeline-row="DiffSummary"]')
+      await expect(summary).toBeVisible()
+      await expect(summary.getByText(/show all/i)).toBeVisible()
+    })
+  }
 
   test("renders interruption independently when the turn is not compacted", async ({ page }) => {
     const user = userMessage()
