@@ -1,4 +1,7 @@
+import { EDIT_REVIEW_ENGLISH } from "./edit-review"
+
 export const dict = {
+  ...EDIT_REVIEW_ENGLISH,
   "command.category.suggested": "Ehdotetut",
   "command.category.view": "Näytä",
   "command.category.project": "Projekti",

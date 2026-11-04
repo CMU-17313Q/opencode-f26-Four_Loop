@@ -1991,18 +1991,44 @@ unixNoLLMServer(
         const { prompt, chat } = yield* boot()
 
         const a = yield* prompt
-          .shell({ sessionID: chat.id, agent: "build", command: "sleep 30" })
+          .shell({ sessionID: chat.id, agent: "build", command: "printf busy-shell-ready; exec sleep 30" })
           .pipe(Effect.forkChild)
-        yield* waitForBusy(chat.id)
+        yield* Effect.gen(function* () {
+          // A busy status is published before the shell has finished starting.
+          // Streamed output proves the process and its cleanup scope are ready.
+          yield* pollWithTimeout(
+            Effect.gen(function* () {
+              const msgs = yield* MessageV2.filterCompactedEffect(chat.id)
+              const assistant = msgs.findLast((item) => item.info.role === "assistant")
+              const tool = assistant ? toolPart(assistant.parts) : undefined
+              if (
+                tool?.state.status === "running" &&
+                typeof tool.state.metadata?.output === "string" &&
+                tool.state.metadata.output.includes("busy-shell-ready")
+              )
+                return true
+            }),
+            "first shell never produced its readiness marker",
+            "10 seconds",
+          )
 
-        const exit = yield* prompt.shell({ sessionID: chat.id, agent: "build", command: "echo hi" }).pipe(Effect.exit)
-        expect(Exit.isFailure(exit)).toBe(true)
-        if (Exit.isFailure(exit)) {
-          expect(Cause.squash(exit.cause)).toBeInstanceOf(Session.BusyError)
-        }
+          const exit = yield* awaitWithTimeout(
+            prompt.shell({ sessionID: chat.id, agent: "build", command: "echo hi" }).pipe(Effect.exit),
+            "second shell did not reject while the first shell was running",
+            "5 seconds",
+          )
+          expect(Exit.isFailure(exit)).toBe(true)
+          if (Exit.isFailure(exit)) {
+            expect(Cause.squash(exit.cause)).toBeInstanceOf(Session.BusyError)
+          }
+        }).pipe(Effect.ensuring(prompt.cancel(chat.id)))
 
-        yield* prompt.cancel(chat.id)
-        yield* Fiber.await(a)
+        const exit = yield* awaitWithTimeout(
+          Fiber.await(a),
+          "first shell did not finish after cancellation",
+          "5 seconds",
+        )
+        expect(Exit.isSuccess(exit)).toBe(true)
       }),
     ),
   { git: true, config: cfg },

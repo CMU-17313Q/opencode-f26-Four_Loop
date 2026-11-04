@@ -213,6 +213,19 @@ The explanation describes what the agent proposes and why; the diff shows the co
 This is an opportunity to review, not a guarantee that the explanation or implementation is correct.
 It is not a general sandbox for arbitrary shell commands, plugins, or other tools.
 
+### Use explain-before-edit on the deployed website
+
+1. Use **Add project → Clone from git URL** to load a public repository, then open it and start a session.
+2. Open **Settings → General → Explain before edit**. Check the displayed project directory and turn the switch on. The switch applies to that project on the selected server. It saves `explain_before_edit` in the project's `opencode.json` or existing `opencode.jsonc` and reads the effective setting back before showing success.
+3. Choose a configured model that exposes the tool you want to test. The current registry normally exposes `apply_patch` to model IDs containing `gpt-` (excluding `gpt-4` and `oss`), and `edit`/`write` to other models.
+4. For a model with `write`, ask: “Use the write tool to create review-demo.txt containing Hi. Include an explanation and wait for my approval. If I reject, stop.”
+5. The web review shows **Why this change?**, the affected files, and the proposed diff before the write. Check that the new file does not exist yet. Choose **Reject**; it must remain absent. Explicitly ask again, then choose **Accept change**; the file should now contain `Hi`.
+6. **Reject with feedback** rejects the proposal and sends your correction to the agent. Cancelling the feedback form leaves the proposal pending. A revised proposal requires its own approval; a model retry is not guaranteed.
+
+Protected proposals always wait for manual review, including when ordinary permission auto-accept is enabled. They have no **Allow always** choice. A multi-file patch shows every supplied file diff and requires one decision for the complete proposal. If the explanation or diff cannot be displayed, the browser offers only rejection.
+
+The switch defaults to off when the project has not enabled the feature. Disabling it restores normal permission behavior. Existing deny rules still apply, and this setting does not protect file changes made through arbitrary shell commands or plugins. The terminal workflow below remains available too.
+
 ### Enable it
 
 In the project being edited, add `"explain_before_edit": true` to its `opencode.json`.

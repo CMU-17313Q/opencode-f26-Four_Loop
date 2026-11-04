@@ -1,8 +1,11 @@
+import { EDIT_REVIEW_ENGLISH } from "./edit-review"
+
 import { dict as en } from "./en"
 
 type Keys = keyof typeof en
 
 export const dict = {
+  ...EDIT_REVIEW_ENGLISH,
   "desktop.menu.app": "OpenCode",
   "desktop.menu.file": "Dosya",
   "desktop.menu.edit": "Düzen",

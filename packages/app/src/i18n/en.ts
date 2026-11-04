@@ -1,7 +1,9 @@
 import { DESKTOP_NATIVE_ENGLISH } from "./desktop-native"
+import { EDIT_REVIEW_ENGLISH } from "./edit-review"
 
 export const dict = {
   ...DESKTOP_NATIVE_ENGLISH,
+  ...EDIT_REVIEW_ENGLISH,
   "command.category.suggested": "Suggested",
   "command.category.view": "View",
   "command.category.project": "Project",

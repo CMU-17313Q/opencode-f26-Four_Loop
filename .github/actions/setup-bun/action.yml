@@ -8,12 +8,19 @@ inputs:
 runs:
   using: "composite"
   steps:
-    # node-gyp@latest (invoked via bunx for native install scripts) requires Node >=22;
-    # some runner images ship an older system Node on PATH
+    # Native build tooling below requires a current Node runtime.
     - name: Setup Node
       uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
         node-version: "24"
+
+    - name: Install native dependency build tool
+      shell: bash
+      run: |
+        native_tools="$RUNNER_TEMP/opencode-native-tools"
+        npm install --prefix "$native_tools" --no-save --no-package-lock --ignore-scripts --no-audit --no-fund node-gyp@12.3.0
+        printf '%s\n' "$native_tools/node_modules/.bin" >> "$GITHUB_PATH"
+        node "$native_tools/node_modules/node-gyp/bin/node-gyp.js" --version
 
     - name: Get baseline download URL
       id: bun-url

@@ -24,24 +24,38 @@ const it = testEffect(
 
 it.live("headerTimeout does not abort delayed SSE body after headers arrive", () =>
   Effect.gen(function* () {
-    const server = yield* Effect.acquireRelease(
-      Effect.promise(() => delayedBodyServer(1_000)),
-      (server) => Effect.sync(() => server.server.close()),
-    )
-
     yield* provideTmpdirInstance(
       () =>
         Effect.gen(function* () {
           const provider = yield* Provider.Service
+          const info = yield* provider.getProvider(ProviderV2.ID.make("test"))
+          // Deliver headers immediately so CPU/socket scheduling cannot consume
+          // the header deadline before this test reaches the delayed body.
+          info.options.fetch = async (_input: unknown, init?: RequestInit) =>
+            new Response(
+              new ReadableStream({
+                async start(controller) {
+                  // The body intentionally arrives after the header deadline.
+                  await Bun.sleep(1_000)
+                  init?.signal?.throwIfAborted()
+                  controller.enqueue(
+                    new TextEncoder().encode('data: {"choices":[{"delta":{"content":"late"}}]}\n\ndata: [DONE]\n\n'),
+                  )
+                  controller.close()
+                },
+              }),
+              { headers: { "content-type": "text/event-stream" } },
+            )
           const model = yield* provider.getModel(ProviderV2.ID.make("test"), ModelV2.ID.make("test-model"))
           const result = streamText({
             model: yield* provider.getLanguage(model),
+            maxRetries: 0,
             messages: [{ role: "user", content: "hello" }],
           })
 
           expect(yield* Effect.promise(() => result.text)).toBe("late")
         }),
-      { config: providerConfig(server.url, { headerTimeout: 500 }) },
+      { config: providerConfig("http://127.0.0.1:1", { headerTimeout: 500 }) },
     )
   }),
 )
