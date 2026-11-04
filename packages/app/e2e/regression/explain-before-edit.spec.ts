@@ -11,7 +11,10 @@ const server = `http://${process.env.PLAYWRIGHT_SERVER_HOST ?? "127.0.0.1"}:${pr
 const diff = "--- a/greeting.txt\n+++ b/greeting.txt\n@@ -1 +1 @@\n-Hi\n+Hello\n"
 const explanation = "Use a clearer greeting while preserving the existing file."
 
-async function setup(page: Page, options: { failRead?: boolean; failSave?: boolean } = {}) {
+async function setup(
+  page: Page,
+  options: { failRead?: boolean; failSave?: boolean; draft?: boolean; home?: boolean } = {},
+) {
   const state = {
     enabled: false,
     failRead: false,
@@ -60,11 +63,37 @@ async function setup(page: Page, options: { failRead?: boolean; failSave?: boole
     }
     return route.fallback()
   })
-  await page.addInitScript(() =>
-    localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } })),
+  await page.addInitScript(
+    ({ draft, server, directory }) => {
+      localStorage.setItem("settings.v3", JSON.stringify({ general: { newLayoutDesigns: true } }))
+      localStorage.setItem("opencode.settings.dat:defaultServerUrl", server)
+      localStorage.setItem(
+        "opencode.global.dat:server",
+        JSON.stringify({
+          list: [server],
+          projects: {
+            local: [{ worktree: directory, expanded: true }],
+            [server]: [{ worktree: directory, expanded: true }],
+          },
+        }),
+      )
+      if (draft)
+        localStorage.setItem(
+          "opencode.window.browser.dat:tabs",
+          JSON.stringify([{ type: "draft", draftID: "draft_review", server, directory }]),
+        )
+    },
+    { draft: options.draft === true, server, directory },
   )
-  await page.goto(`/${base64Encode(directory)}/session/${sessionID}`)
-  await expectSessionTitle(page, title)
+  await page.goto(
+    options.home
+      ? "/"
+      : options.draft
+        ? "/new-session?draftId=draft_review"
+        : `/${base64Encode(directory)}/session/${sessionID}`,
+  )
+  if (options.draft) await expect(page.locator('[data-action="prompt-project"]')).toContainText("Hello-World")
+  else if (!options.home) await expectSessionTitle(page, title)
   await transport.waitForConnection()
   state.failRead = options.failRead === true
   return {
@@ -130,6 +159,33 @@ test("saves the project switch, reads it after refresh, and can turn it off", as
     { directory, body: { explain_before_edit: true } },
     { directory, body: { explain_before_edit: false } },
   ])
+})
+
+test("can turn review on and off in a new session before sending a message", async ({ page }) => {
+  const fixture = await setup(page, { draft: true })
+  const row = (await settings(page)).locator('[data-component="settings-edit-review"]')
+  await expect(row.getByText(directory, { exact: true })).toBeVisible()
+  await expect(row.getByRole("switch")).toBeEnabled()
+  await row.locator('[data-slot="switch-control"]').click()
+  await expect(row.getByRole("switch")).toBeChecked()
+  await expect(row.getByRole("switch")).toBeEnabled()
+  await row.locator('[data-slot="switch-control"]').click()
+  await expect(row.getByRole("switch")).not.toBeChecked()
+  expect(fixture.state.updates).toEqual([
+    { directory, body: { explain_before_edit: true } },
+    { directory, body: { explain_before_edit: false } },
+  ])
+})
+
+test("enables review for the only open project from home without creating a session", async ({ page }) => {
+  const fixture = await setup(page, { home: true })
+  const row = (await settings(page)).locator('[data-component="settings-edit-review"]')
+  await expect(row.getByRole("button", { name: "Project Hello-World", exact: true })).toContainText("Hello-World")
+  await expect(row.getByText(directory, { exact: true })).toBeVisible()
+  await expect(row.getByRole("switch")).toBeEnabled()
+  await row.locator('[data-slot="switch-control"]').click()
+  await expect(row.getByRole("switch")).toBeChecked()
+  expect(fixture.state.updates).toEqual([{ directory, body: { explain_before_edit: true } }])
 })
 
 test("reports a failed save without showing the project as enabled", async ({ page }) => {

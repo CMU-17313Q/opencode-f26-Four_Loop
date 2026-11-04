@@ -1,6 +1,9 @@
 import { Show, createMemo, createResource } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { Config } from "@opencode-ai/sdk/v2"
+import { Select } from "@opencode-ai/ui/select"
+import { getFilename } from "@opencode-ai/core/util/path"
+import { useGlobal } from "@/context/global"
 import { Switch } from "@opencode-ai/ui/switch"
 import { useLanguage } from "@/context/language"
 import { useServerSDK } from "@/context/server-sdk"
@@ -9,12 +12,30 @@ import { showToast } from "@/utils/toast"
 export function SettingsEditReview(props: { directory?: string }) {
   const language = useLanguage()
   const server = useServerSDK()
-  const [state, setState] = createStore({ saving: false })
+  const global = useGlobal()
+  const [state, setState] = createStore({
+    saving: false,
+    project: undefined as { scope: string; directory: string } | undefined,
+  })
+  const projects = createMemo(() => [
+    ...new Set([
+      ...global
+        .ensureServerCtx(server().server)
+        .projects.list()
+        .map((project) => project.worktree),
+      ...(props.directory ? [props.directory] : []),
+    ]),
+  ])
+  const directory = createMemo(() => {
+    const selected = state.project
+    if (selected?.scope === server().scope && projects().includes(selected.directory)) return selected.directory
+    return props.directory ?? (projects().length === 1 ? projects()[0] : undefined)
+  })
   const target = createMemo(() => {
     const sdk = server()
-    const directory = props.directory
-    if (!directory || sdk.protocolKind() !== "v1") return
-    return { sdk, directory }
+    const selected = directory()
+    if (!selected || sdk.protocolKind() !== "v1") return
+    return { sdk, directory: selected }
   })
   const [enabled, { mutate }] = createResource(target, async ({ sdk, directory }) => {
     const result = await sdk.client.config.get({ directory }, { throwOnError: true })
@@ -44,14 +65,27 @@ export function SettingsEditReview(props: { directory?: string }) {
       <div class="flex min-w-0 flex-col gap-1">
         <div class="text-14-medium text-text-strong">{language.t("editReview.setting.title")}</div>
         <div class="text-12-regular text-text-weak">
-          {!props.directory
+          {!directory()
             ? language.t("editReview.setting.noProject")
             : server().protocolKind() !== "v1"
               ? language.t("editReview.setting.unsupported")
               : language.t("editReview.setting.description")}
         </div>
-        <Show when={props.directory}>
-          <code class="text-12-regular text-text-weak break-all">{props.directory}</code>
+        <Show when={projects().length > 0}>
+          <Select
+            options={projects()}
+            current={directory()}
+            label={(value) => getFilename(value) || value}
+            placeholder={language.t("command.project.open")}
+            triggerProps={{ "aria-label": language.t("command.category.project") }}
+            disabled={state.saving}
+            onSelect={(value) => setState("project", value ? { scope: server().scope, directory: value } : undefined)}
+            variant="secondary"
+            size="small"
+          />
+        </Show>
+        <Show when={directory()}>
+          <code class="text-12-regular text-text-weak break-all">{directory()}</code>
         </Show>
         <Show when={enabled.error}>
           <div role="alert" class="text-12-regular text-text-weak">
