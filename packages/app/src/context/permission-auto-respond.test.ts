@@ -15,6 +15,18 @@ const permission = (sessionID: string) =>
   }) as Pick<PermissionRequest, "sessionID">
 
 describe("autoRespondsPermission", () => {
+  test("never auto-accepts protected edits despite session, parent, or directory approvals", () => {
+    const directory = "/tmp/project"
+    const sessions = [session({ id: "root" }), session({ id: "child", parentID: "root" })]
+    const approvals = {
+      [`${base64Encode(directory)}/root`]: true,
+      [`${base64Encode(directory)}/child`]: true,
+      [`${base64Encode(directory)}/*`]: true,
+    }
+    const protectedEdit = { sessionID: "child", permission: "edit", metadata: { explainBeforeEdit: true } }
+    expect(autoRespondsPermission(approvals, sessions, protectedEdit, directory)).toBe(false)
+    expect(autoRespondsPermission(approvals, sessions, { ...protectedEdit, metadata: {} }, directory)).toBe(true)
+  })
   test("uses a parent session's directory-scoped auto-accept", () => {
     const directory = "/tmp/project"
     const sessions = [session({ id: "root" }), session({ id: "child", parentID: "root" })]

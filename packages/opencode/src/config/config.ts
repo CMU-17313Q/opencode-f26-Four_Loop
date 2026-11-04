@@ -625,11 +625,14 @@ const layer = Layer.effect(
 
     const update = Effect.fn("Config.update")(function* (config: Info) {
       const dir = yield* InstanceState.directory
-      const file = path.join(dir, "config.json")
-      const existing = yield* loadFile(file)
-      yield* fs
-        .writeFileString(file, JSON.stringify(mergeDeep(writable(existing), writable(config)), null, 2))
-        .pipe(Effect.orDie)
+      // Project config discovery reads opencode.json[c], with JSONC taking precedence.
+      const jsonc = path.join(dir, "opencode.jsonc")
+      const file = (yield* fs.existsSafe(jsonc)) ? jsonc : path.join(dir, "opencode.json")
+      const before = (yield* readConfigFile(file)) || "{}"
+      ConfigParse.schema(ConfigV1.Info, ConfigParse.jsonc(before, file), file)
+      const next = patchJsonc(before, writable(config))
+      ConfigParse.schema(ConfigV1.Info, ConfigParse.jsonc(next, file), file)
+      yield* fs.writeFileString(file, next).pipe(Effect.orDie)
     })
 
     const invalidate = Effect.fn("Config.invalidate")(function* () {

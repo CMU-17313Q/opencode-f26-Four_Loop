@@ -31,6 +31,7 @@ import { decode64 } from "@/utils/base64"
 import { playSoundById, SOUND_OPTIONS } from "@/utils/sound"
 import { ExternalLink } from "./external-link"
 import { SettingsList } from "./settings-list"
+import { SettingsEditReview } from "./settings-edit-review"
 
 let demoSoundState = {
   cleanup: undefined as (() => void) | undefined,
@@ -324,6 +325,8 @@ export const SettingsGeneral: Component = () => {
             <Switch checked={accepting()} disabled={!dir()} onChange={toggleAccept} />
           </div>
         </SettingsRow>
+
+        <SettingsEditReview directory={dir()} />
 
         <SettingsRow
           title={language.t("settings.general.row.shell.title")}

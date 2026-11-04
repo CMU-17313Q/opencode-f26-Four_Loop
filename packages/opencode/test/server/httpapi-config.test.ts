@@ -44,7 +44,7 @@ describe("config HttpApi", () => {
               "content-type": "application/json",
               "x-opencode-directory": tmp.path,
             },
-            body: JSON.stringify({ username: "patched-user", formatter: false, lsp: false }),
+            body: JSON.stringify({ username: "patched-user", formatter: false, lsp: false, explain_before_edit: true }),
           }),
         ),
       )
@@ -56,11 +56,91 @@ describe("config HttpApi", () => {
         lsp: false,
       })
       yield* Fiber.join(disposed)
-      expect(yield* Effect.promise(() => Bun.file(path.join(tmp.path, "config.json")).json())).toMatchObject({
+      expect(yield* Effect.promise(() => Bun.file(path.join(tmp.path, "opencode.json")).json())).toMatchObject({
         username: "patched-user",
         formatter: false,
         lsp: false,
+        explain_before_edit: true,
       })
+      const reloaded = yield* Effect.promise(() =>
+        Promise.resolve(app().request(`/config?directory=${encodeURIComponent(tmp.path)}`)),
+      )
+      expect(reloaded.status).toBe(200)
+      expect(yield* Effect.promise(() => reloaded.json())).toMatchObject({
+        username: "patched-user",
+        explain_before_edit: true,
+      })
+    }),
+  )
+
+  it.live(
+    "persists project review toggles in the active JSONC file without affecting another project",
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirEffect({ config: { formatter: false, lsp: false, username: "keep-json" } })
+      const other = yield* tmpdirEffect({ config: { formatter: false, lsp: false, explain_before_edit: false } })
+      const file = path.join(tmp.path, "opencode.jsonc")
+      yield* Effect.promise(() =>
+        Bun.write(
+          file,
+          '{\n  // Preserve this project comment.\n  "username": "keep-jsonc",\n  "explain_before_edit": false\n}\n',
+        ),
+      )
+      for (const enabled of [true, false]) {
+        const disposed = yield* waitDisposed(tmp.path).pipe(Effect.forkScoped({ startImmediately: true }))
+        const response = yield* Effect.promise(() =>
+          Promise.resolve(
+            app().request(`/config?directory=${encodeURIComponent(tmp.path)}`, {
+              method: "PATCH",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ explain_before_edit: enabled }),
+            }),
+          ),
+        )
+        expect(response.status).toBe(200)
+        yield* Fiber.join(disposed)
+        const loaded = yield* Effect.promise(() =>
+          Promise.resolve(app().request(`/config?directory=${encodeURIComponent(tmp.path)}`)),
+        )
+        expect(yield* Effect.promise(() => loaded.json())).toMatchObject({
+          username: "keep-jsonc",
+          explain_before_edit: enabled,
+          formatter: false,
+        })
+        expect(yield* Effect.promise(() => Bun.file(file).text())).toContain("// Preserve this project comment.")
+        const untouched = yield* Effect.promise(() =>
+          Promise.resolve(app().request(`/config?directory=${encodeURIComponent(other.path)}`)),
+        )
+        expect(yield* Effect.promise(() => untouched.json())).toMatchObject({ explain_before_edit: false })
+      }
+      expect(yield* Effect.promise(() => Bun.file(path.join(tmp.path, "opencode.json")).json())).toMatchObject({
+        username: "keep-json",
+      })
+    }),
+  )
+
+  it.live(
+    "creates discoverable configuration for a newly cloned project",
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirEffect(undefined)
+      const disposed = yield* waitDisposed(tmp.path).pipe(Effect.forkScoped({ startImmediately: true }))
+      const response = yield* Effect.promise(() =>
+        Promise.resolve(
+          app().request(`/config?directory=${encodeURIComponent(tmp.path)}`, {
+            method: "PATCH",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ explain_before_edit: true, formatter: false, lsp: false }),
+          }),
+        ),
+      )
+      expect(response.status).toBe(200)
+      yield* Fiber.join(disposed)
+      expect(yield* Effect.promise(() => Bun.file(path.join(tmp.path, "opencode.json")).json())).toMatchObject({
+        explain_before_edit: true,
+      })
+      const loaded = yield* Effect.promise(() =>
+        Promise.resolve(app().request(`/config?directory=${encodeURIComponent(tmp.path)}`)),
+      )
+      expect(yield* Effect.promise(() => loaded.json())).toMatchObject({ explain_before_edit: true })
     }),
   )
 

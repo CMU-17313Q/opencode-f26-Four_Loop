@@ -1,3 +1,5 @@
+import { EDIT_REVIEW_ENGLISH } from "./edit-review"
+
 import { DESKTOP_NATIVE_KEYS } from "./desktop-native"
 
 const desktop = [
@@ -94,6 +96,7 @@ const desktop = [
 ]
 
 export const dict = {
+  ...EDIT_REVIEW_ENGLISH,
   ...Object.fromEntries(DESKTOP_NATIVE_KEYS.map((key, index) => [key, desktop[index]])),
   "command.category.suggested": "Tillögur",
   "command.category.view": "Skoða",

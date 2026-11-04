@@ -1,4 +1,7 @@
+import { EDIT_REVIEW_ENGLISH } from "./edit-review"
+
 export const dict: Record<string, string> = {
+  ...EDIT_REVIEW_ENGLISH,
   "desktop.menu.app": "OpenCode",
   "desktop.menu.file": "ཡིག༌སྣོད",
   "desktop.menu.edit": "ཞུན༌དག",

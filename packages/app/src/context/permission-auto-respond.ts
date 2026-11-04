@@ -1,4 +1,5 @@
 import { base64Encode } from "@opencode-ai/core/util/encode"
+import { requiresEditReview, type EditReviewRequest } from "@/utils/edit-review"
 
 export function acceptKey(sessionID: string, directory?: string) {
   if (!directory) return sessionID
@@ -40,9 +41,10 @@ function sessionLineage(session: { id: string; parentID?: string }[], sessionID:
 export function autoRespondsPermission(
   autoAccept: Record<string, boolean>,
   session: { id: string; parentID?: string }[],
-  permission: { sessionID: string },
+  permission: { sessionID: string } & EditReviewRequest,
   directory?: string,
 ) {
+  if (requiresEditReview(permission)) return false
   const value = sessionAutoAccept(autoAccept, session, permission, directory)
   if (value !== undefined) return value
   return directory ? isDirectoryAutoAccepting(autoAccept, directory) : false

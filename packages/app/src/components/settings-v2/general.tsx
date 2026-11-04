@@ -26,6 +26,7 @@ import {
   type SoundSettingsController,
 } from "./general-controllers"
 import "./settings-v2.css"
+import { SettingsEditReview } from "../settings-edit-review"
 
 const schemeOptions: ("system" | "light" | "dark")[] = ["system", "light", "dark"]
 const fontSettings = {
@@ -273,6 +274,7 @@ const LanguageSetting = () => {
 
 export const SettingsGeneralV2: Component<{
   sessionID?: string
+  directory?: string
 }> = (props) => {
   const language = useLanguage()
   const platform = usePlatform()
@@ -330,6 +332,8 @@ export const SettingsGeneralV2: Component<{
         <LanguageSetting />
 
         <PermissionScopeSetting controller={permissionScope} />
+
+        <SettingsEditReview directory={props.directory} />
 
         <ShellSetting controller={shell} />
 
