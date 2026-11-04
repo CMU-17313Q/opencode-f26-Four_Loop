@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import fs from "fs/promises"
 import path from "path"
+import { once } from "node:events"
 import { Process } from "@/util/process"
+import { withTimeout } from "@/util/timeout"
 import { tmpdir } from "../fixture/fixture"
 
 function node(script: string) {
@@ -29,36 +31,57 @@ describe("util.process", () => {
     expect(err.stderr.toString()).toBe("bad")
   })
 
+  test("run forwards an already aborted signal", async () => {
+    const abort = AbortSignal.abort(new Error("cancelled before start"))
+    await expect(Process.run(node("process.exit(0)"), { abort })).rejects.toThrow("cancelled before start")
+  })
+
   test("aborts a running process", async () => {
     const abort = new AbortController()
-    const started = Date.now()
-    setTimeout(() => abort.abort(), 25)
-
-    const out = await Process.run(node("setInterval(() => {}, 1000)"), {
+    const proc = Process.spawn(node('setInterval(() => {}, 1000); process.stdout.write("ready")'), {
       abort: abort.signal,
-      nothrow: true,
+      stdout: "pipe",
     })
-
-    expect(out.code).not.toBe(0)
-    expect(Date.now() - started).toBeLessThan(1000)
-  }, 3000)
+    try {
+      if (!proc.stdout) throw new Error("Process output not available")
+      // Child startup is separate from the deadline for handling cancellation.
+      const [ready] = await withTimeout(once(proc.stdout, "data"), 5_000, "Child did not become ready")
+      expect(ready.toString()).toBe("ready")
+      abort.abort()
+      expect(await withTimeout(proc.exited, 2_500, "Child did not stop after abort")).not.toBe(0)
+      if (process.platform !== "win32") expect(proc.signalCode).toBe("SIGTERM")
+    } finally {
+      if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL")
+      await proc.exited
+    }
+  }, 10_000)
 
   test("kills after timeout when process ignores terminate signal", async () => {
     if (process.platform === "win32") return
 
     const abort = new AbortController()
-    const started = Date.now()
-    setTimeout(() => abort.abort(), 25)
-
-    const out = await Process.run(node('process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'), {
-      abort: abort.signal,
-      nothrow: true,
-      timeout: 25,
-    })
-
-    expect(out.code).not.toBe(0)
-    expect(Date.now() - started).toBeLessThan(1000)
-  }, 3000)
+    const proc = Process.spawn(
+      node('process.on("SIGTERM", () => {}); setInterval(() => {}, 1000); process.stdout.write("ready")'),
+      {
+        abort: abort.signal,
+        stdout: "pipe",
+        timeout: 25,
+      },
+    )
+    try {
+      if (!proc.stdout) throw new Error("Process output not available")
+      const [ready] = await withTimeout(once(proc.stdout, "data"), 5_000, "Child did not install its signal handler")
+      expect(ready.toString()).toBe("ready")
+      abort.abort()
+      expect(await withTimeout(proc.exited, 2_500, "Child was not killed after its termination grace period")).not.toBe(
+        0,
+      )
+      expect(proc.signalCode).toBe("SIGKILL")
+    } finally {
+      if (proc.exitCode === null && proc.signalCode === null) proc.kill("SIGKILL")
+      await proc.exited
+    }
+  }, 10_000)
 
   test("uses cwd when spawning commands", async () => {
     await using tmp = await tmpdir()
