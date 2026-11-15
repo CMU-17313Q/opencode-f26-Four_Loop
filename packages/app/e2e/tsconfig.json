@@ -15,6 +15,7 @@
     "../src/pages/session/timeline/observe-element-offset.ts",
     "./regression/new-session-panel-corner.spec.ts",
     "./regression/session-timeline-context-resize.spec.ts",
+    "./smoke/mbader-edit-review.property.spec.ts",
     "./utils/**/*.ts"
   ]
 }
