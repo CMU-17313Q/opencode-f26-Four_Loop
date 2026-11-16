@@ -4,7 +4,7 @@ import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { Database } from "@opencode-ai/core/database/database"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { APICallError } from "ai"
-import { Cause, Deferred, Effect, Exit, Fiber, Layer, Schema } from "effect"
+import { Cause, Clock, Deferred, Duration, Effect, Exit, Fiber, Layer, Schema } from "effect"
 import * as Stream from "effect/Stream"
 import { Config } from "@/config/config"
 import { LLM } from "../../src/session/llm"
@@ -15,7 +15,6 @@ import { provideTmpdirInstance, TestInstance } from "../fixture/fixture"
 import { Session as SessionNs } from "@/session/session"
 import { MessageV2 } from "../../src/session/message-v2"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
-import { SessionStatus } from "../../src/session/status"
 import { SessionSummary } from "../../src/session/summary"
 import { SessionV2 } from "@opencode-ai/core/session"
 import { SessionExecution } from "@opencode-ai/core/session/execution"
@@ -24,7 +23,7 @@ import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { Provider } from "@/provider/provider"
 import * as SessionProcessorModule from "../../src/session/processor"
 import { ProviderTest } from "../fake/provider"
-import { testEffect } from "../lib/effect"
+import { awaitWithTimeout, testEffect } from "../lib/effect"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { TestConfig } from "../fixture/config"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -1186,8 +1185,9 @@ describe("session.compaction.process", () => {
   )
 
   itCompaction.instance(
-    "stops quickly when aborted during retry backoff",
+    "interrupts retry backoff without waiting for the retry delay",
     () => {
+      const retryDelay = 10_000
       const stub = llm()
       stub.push(
         Stream.fromAsyncIterable(
@@ -1199,7 +1199,7 @@ describe("session.compaction.process", () => {
                 url: "https://example.com/v1/chat/completions",
                 requestBodyValues: {},
                 statusCode: 503,
-                responseHeaders: { "retry-after-ms": "10000" },
+                responseHeaders: { "retry-after-ms": String(retryDelay) },
                 responseBody: '{"error":"boom"}',
                 isRetryable: true,
               })
@@ -1211,19 +1211,23 @@ describe("session.compaction.process", () => {
 
       return Effect.gen(function* () {
         const ssn = yield* SessionNs.Service
-        const events = yield* EventV2Bridge.Service
+        const clock = yield* Clock.Clock
         const ready = yield* Deferred.make<void>()
         const session = yield* ssn.create({})
         const msg = yield* createUserMessage(session.id, "hello")
         const msgs = yield* ssn.messages({ sessionID: session.id })
-        const off = yield* events.listen((evt) => {
-          if (evt.type !== SessionStatus.Event.Status.type) return Effect.void
-          const data = evt.data as typeof SessionStatus.Event.Status.data.Type
-          if (data.sessionID !== session.id || data.status.type !== "retry") return Effect.void
-          Deferred.doneUnsafe(ready, Effect.void)
-          return Effect.void
-        })
-        yield* Effect.addFinalizer(() => off)
+        // Hold the provider's retry sleep at its entry point until interrupted.
+        // Keep ordinary cleanup on the live clock, including Git subprocesses.
+        const retryClock: Clock.Clock = {
+          currentTimeMillis: clock.currentTimeMillis,
+          currentTimeMillisUnsafe: () => clock.currentTimeMillisUnsafe(),
+          currentTimeNanos: clock.currentTimeNanos,
+          currentTimeNanosUnsafe: () => clock.currentTimeNanosUnsafe(),
+          sleep: (duration) =>
+            Duration.toMillis(duration) === retryDelay
+              ? Deferred.succeed(ready, undefined).pipe(Effect.andThen(Effect.never))
+              : clock.sleep(duration),
+        }
 
         const fiber = yield* SessionCompaction.use
           .process({
@@ -1232,22 +1236,24 @@ describe("session.compaction.process", () => {
             sessionID: session.id,
             auto: false,
           })
-          .pipe(Effect.forkChild)
+          .pipe(Effect.provideService(Clock.Clock, retryClock), Effect.forkChild)
 
-        yield* Deferred.await(ready).pipe(Effect.timeout("5 seconds"))
-        const start = Date.now()
-        yield* Fiber.interrupt(fiber)
-        const exit = yield* Fiber.await(fiber).pipe(Effect.timeout("250 millis"))
+        yield* awaitWithTimeout(Deferred.await(ready), "Provider retry never entered backoff", "5 seconds")
+        yield* awaitWithTimeout(
+          Fiber.interrupt(fiber),
+          "Compaction did not exit after interrupting backoff",
+          "5 seconds",
+        )
+        const exit = yield* Fiber.await(fiber)
 
         expect(Exit.isFailure(exit)).toBe(true)
         if (Exit.isFailure(exit)) {
-          expect(Cause.hasInterrupts(exit.cause)).toBe(true)
-          expect(Date.now() - start).toBeLessThan(250)
+          expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true)
         }
       }).pipe(withCompaction({ llm: stub.llmLayer }))
     },
     { git: true },
-    { timeout: 10_000 },
+    { timeout: 20_000 },
   )
 
   itCompaction.instance(

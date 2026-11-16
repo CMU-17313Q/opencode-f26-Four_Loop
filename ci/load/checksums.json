@@ -1,0 +1,6 @@
+{
+  "k6-v1.3.0-linux-amd64.tar.gz": "84d26fc1f7bc03e02f2e016b3b1b20c032e05dfe461fca82de4e3a6ebe72ddbd",
+  "k6-v1.3.0-linux-arm64.tar.gz": "df35a88b5ef534b39f4ab74b22a0d60362138af219228253f042650a36af7920",
+  "k6-v1.3.0-macos-amd64.zip": "43d1ba79139856a3be056bf19b748ae68096fd67575df5afdc27514ec7adb8dc",
+  "k6-v1.3.0-macos-arm64.zip": "eb06b22418e26f7394023e53aaaddf0bec739f669acf718cc9b0e2d7f12bd7be"
+}

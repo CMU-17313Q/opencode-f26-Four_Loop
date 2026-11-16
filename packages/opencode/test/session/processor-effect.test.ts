@@ -19,7 +19,7 @@ import { SessionStatus } from "../../src/session/status"
 import { SessionSummary } from "../../src/session/summary"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { provideTmpdirInstance, provideTmpdirServer } from "../fixture/fixture"
-import { testEffect } from "../lib/effect"
+import { awaitWithTimeout, pollWithTimeout, testEffect } from "../lib/effect"
 import { raw, reply, TestLLMServer } from "../lib/llm-server"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderV2 } from "@opencode-ai/core/provider"
@@ -813,14 +813,29 @@ it.live("session.processor effect tests complete AI SDK tool calls when native f
   ),
 )
 
-it.live("session.processor effect tests mark pending tools as aborted on cleanup", () =>
-  provideTmpdirServer(
-    ({ dir, llm }) =>
-      Effect.gen(function* () {
-        const database = yield* Database.Service
-        const { processors, session, provider } = yield* boot()
+// Keep the processor and persistence real while making the pending stream
+// independent of a deliberately open HTTP connection and server shutdown.
+const itPendingTool = testEffect(
+  LayerNode.compile(root, [
+    ...replacements,
+    [
+      LLM.node,
+      Layer.mock(LLM.Service, {
+        stream: () =>
+          Stream.concat(
+            Stream.make(LLMEvent.stepStart({ index: 0 }), LLMEvent.toolInputStart({ id: "pending-1", name: "bash" })),
+            Stream.never,
+          ),
+      }),
+    ],
+  ]),
+)
 
-        yield* llm.toolHang("bash", { cmd: "pwd" })
+itPendingTool.live("session.processor effect tests mark pending tools as aborted on cleanup", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
 
         const chat = yield* session.create({})
         const parent = yield* user(chat.id, "tool abort")
@@ -851,15 +866,21 @@ it.live("session.processor effect tests mark pending tools as aborted on cleanup
           })
           .pipe(Effect.forkChild)
 
-        yield* llm.wait(1)
-        yield* waitFor(
+        yield* pollWithTimeout(
           MessageV2.parts(msg.id).pipe(
-            Effect.map((parts) => parts.find((part): part is SessionV1.ToolPart => part.type === "tool")),
-            Effect.provideService(Database.Service, database),
+            Effect.map((parts) =>
+              parts.find(
+                (part) => part.type === "tool" && part.callID === "pending-1" && part.state.status === "pending",
+              ),
+            ),
           ),
-          "timed out waiting for tool part",
+          "Tool never entered the pending state",
         )
-        yield* Fiber.interrupt(run)
+        yield* awaitWithTimeout(
+          Fiber.interrupt(run),
+          "Processor did not finish cleanup after interruption",
+          "5 seconds",
+        )
 
         const exit = yield* Fiber.await(run)
         const parts = yield* MessageV2.parts(msg.id)
@@ -869,7 +890,7 @@ it.live("session.processor effect tests mark pending tools as aborted on cleanup
         if (Exit.isFailure(exit)) {
           expect(Cause.hasInterruptsOnly(exit.cause)).toBe(true)
         }
-        expect(yield* llm.calls).toBe(1)
+        expect(call?.callID).toBe("pending-1")
         expect(call?.state.status).toBe("error")
         if (call?.state.status === "error") {
           expect(call.state.error).toBe("Tool execution aborted")
@@ -877,7 +898,7 @@ it.live("session.processor effect tests mark pending tools as aborted on cleanup
           expect(call.state.time.end).toBeDefined()
         }
       }),
-    { config: (url) => providerCfg(url) },
+    { config: cfg },
   ),
 )
 
